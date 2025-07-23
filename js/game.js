@@ -1,10 +1,15 @@
 document.addEventListener('DOMContentLoaded', function() {
     const gameArea = document.getElementById('gameArea');
-    const gameWrapper = document.querySelector('.game-wrapper');
-    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const gameWrapper = document.getElementById('gameWrapper');
+    const exitFullscreenBtn = document.getElementById('exitFullscreenBtn');
 
-    let gameWidth = gameWrapper.offsetWidth;
-    let gameHeight = gameWrapper.offsetHeight;
+    // Автоматически переходим в полноэкранный режим при загрузке
+    gameWrapper.requestFullscreen().catch(err => {
+        console.error(`Ошибка при переходе в полноэкранный режим: ${err.message}`);
+    });
+
+    let gameWidth = window.innerWidth;
+    let gameHeight = window.innerHeight;
 
     // Настройки игры
     const settings = {
@@ -16,7 +21,8 @@ document.addEventListener('DOMContentLoaded', function() {
         wallBounce: 0.8,
         maxHealth: 100,
         damagePerHit: 10,
-        hitCooldown: 1000 // 1 секунда
+        hitCooldown: 1000, // 1 секунда
+        ballBounce: 0.9 // Отскок шариков друг от друга
     };
 
     // Массив шариков
@@ -24,22 +30,16 @@ document.addEventListener('DOMContentLoaded', function() {
     let lastHitTime = {};
 
     // Обработчик изменения размера окна
-    window.addEventListener('resize', function() {
-        if (!document.fullscreenElement) {
-            gameWidth = gameWrapper.offsetWidth;
-            gameHeight = gameWrapper.offsetHeight;
-        }
-    });
+    function handleResize() {
+        gameWidth = window.innerWidth;
+        gameHeight = window.innerHeight;
+    }
 
-    // Полноэкранный режим
-    fullscreenBtn.addEventListener('click', function() {
-        if (!document.fullscreenElement) {
-            gameWrapper.requestFullscreen().catch(err => {
-                console.error(`Ошибка при переходе в полноэкранный режим: ${err.message}`);
-            });
-        } else {
-            document.exitFullscreen();
-        }
+    window.addEventListener('resize', handleResize);
+
+    // Выход из полноэкранного режима
+    exitFullscreenBtn.addEventListener('click', function() {
+        document.exitFullscreen();
     });
 
     // Создание шариков
@@ -51,8 +51,26 @@ document.addEventListener('DOMContentLoaded', function() {
     // Создание одного шарика с оружием
     function createBall(index) {
         // Случайная позиция на поле (с отступом от границ)
-        const x = Math.random() * (gameWidth - settings.ballSize * 2) + settings.ballSize;
-        const y = Math.random() * (gameHeight - settings.ballSize * 2) + settings.ballSize;
+        const radius = settings.ballSize / 2;
+        let x, y;
+        let validPosition = false;
+
+        // Проверяем, чтобы шарики не появлялись внутри друг друга
+        while (!validPosition) {
+            validPosition = true;
+            x = Math.random() * (gameWidth - settings.ballSize * 2) + settings.ballSize;
+            y = Math.random() * (gameHeight - settings.ballSize * 2) + settings.ballSize;
+
+            for (const ball of balls) {
+                const dx = x - ball.x;
+                const dy = y - ball.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance < settings.ballSize * 1.5) {
+                    validPosition = false;
+                    break;
+                }
+            }
+        }
 
         // Создаем элемент шарика
         const ball = document.createElement('div');
@@ -96,6 +114,9 @@ document.addEventListener('DOMContentLoaded', function() {
             angle: 0,
             weaponAngle: 0,
             health: settings.maxHealth,
+            radius: radius,
+            vx: 0,
+            vy: 0,
             controls: {
                 up: false,
                 down: false,
@@ -108,7 +129,25 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Генерация случайного цвета
+
+    document.addEventListener('keydown', function(e) {
+        balls.forEach(ball => {
+            if (e.key.toLowerCase() === ball.keys[0]) ball.controls.up = true;
+            if (e.key.toLowerCase() === ball.keys[1]) ball.controls.left = true;
+            if (e.key.toLowerCase() === ball.keys[2]) ball.controls.down = true;
+            if (e.key.toLowerCase() === ball.keys[3]) ball.controls.right = true;
+        });
+    });
+
+    document.addEventListener('keyup', function(e) {
+        balls.forEach(ball => {
+            if (e.key.toLowerCase() === ball.keys[0]) ball.controls.up = false;
+            if (e.key.toLowerCase() === ball.keys[1]) ball.controls.left = false;
+            if (e.key.toLowerCase() === ball.keys[2]) ball.controls.down = false;
+            if (e.key.toLowerCase() === ball.keys[3]) ball.controls.right = false;
+        });
+    });
+
     function getRandomColor() {
         const colors = ['#FF5252', '#FFEB3B', '#4CAF50', '#2196F3', '#9C27B0'];
         return colors[Math.floor(Math.random() * colors.length)];
@@ -192,7 +231,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Расстояние от точки до линии
     function pointToLineDistance(x, y, x1, y1, x2, y2) {
         const A = x - x1;
         const B = y - y1;
@@ -226,82 +264,119 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Проверка столкновения со стенами
     function checkWallCollision(ball) {
+        let collided = false;
         const radius = settings.ballSize / 2;
 
         // Левая стена
         if (ball.x < radius) {
             ball.x = radius;
-            return true;
+            ball.vx = -ball.vx * settings.wallBounce;
+            collided = true;
         }
         // Правая стена
         if (ball.x > gameWidth - radius) {
             ball.x = gameWidth - radius;
-            return true;
+            ball.vx = -ball.vx * settings.wallBounce;
+            collided = true;
         }
         // Верхняя стена
         if (ball.y < radius) {
             ball.y = radius;
-            return true;
+            ball.vy = -ball.vy * settings.wallBounce;
+            collided = true;
         }
         // Нижняя стена
         if (ball.y > gameHeight - radius) {
             ball.y = gameHeight - radius;
-            return true;
+            ball.vy = -ball.vy * settings.wallBounce;
+            collided = true;
         }
 
-        return false;
+        return collided;
     }
 
-    // Обработка нажатий клавиш
-    document.addEventListener('keydown', function(e) {
-        balls.forEach(ball => {
-            if (e.key.toLowerCase() === ball.keys[0]) ball.controls.up = true;
-            if (e.key.toLowerCase() === ball.keys[1]) ball.controls.left = true;
-            if (e.key.toLowerCase() === ball.keys[2]) ball.controls.down = true;
-            if (e.key.toLowerCase() === ball.keys[3]) ball.controls.right = true;
-        });
-    });
+    // Проверка столкновения шариков
+    function checkBallCollisions() {
+        for (let i = 0; i < balls.length; i++) {
+            const ball1 = balls[i];
+            if (ball1.health <= 0) continue; // Мёртвые не сталкиваются
 
-    document.addEventListener('keyup', function(e) {
-        balls.forEach(ball => {
-            if (e.key.toLowerCase() === ball.keys[0]) ball.controls.up = false;
-            if (e.key.toLowerCase() === ball.keys[1]) ball.controls.left = false;
-            if (e.key.toLowerCase() === ball.keys[2]) ball.controls.down = false;
-            if (e.key.toLowerCase() === ball.keys[3]) ball.controls.right = false;
-        });
-    });
+            for (let j = i + 1; j < balls.length; j++) {
+                const ball2 = balls[j];
+                if (ball2.health <= 0) continue; // Мёртвые не сталкиваются
+
+                const dx = ball2.x - ball1.x;
+                const dy = ball2.y - ball1.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                // Если шарики пересекаются
+                if (distance < ball1.radius + ball2.radius) {
+                    // Нормализованный вектор между центрами
+                    const nx = dx / distance;
+                    const ny = dy / distance;
+
+                    // Точка столкновения
+                    const p = (ball1.radius + ball2.radius - distance) / 2;
+
+                    // Раздвигаем шарики
+                    ball1.x -= p * nx;
+                    ball1.y -= p * ny;
+                    ball2.x += p * nx;
+                    ball2.y += p * ny;
+
+                    // Вычисляем относительную скорость
+                    const dvx = ball2.vx - ball1.vx;
+                    const dvy = ball2.vy - ball1.vy;
+
+                    // Проекция скорости на линию столкновения
+                    const velocityAlongNormal = dvx * nx + dvy * ny;
+
+                    // Если шарики удаляются друг от друга, не обрабатываем столкновение
+                    if (velocityAlongNormal > 0) continue;
+
+                    // Импульс столкновения
+                    const impulse = 2 * velocityAlongNormal / (1 + 1) * settings.ballBounce;
+
+                    // Применяем импульс
+                    ball1.vx += impulse * nx;
+                    ball1.vy += impulse * ny;
+                    ball2.vx -= impulse * nx;
+                    ball2.vy -= impulse * ny;
+                }
+            }
+        }
+    }
 
     // Игровой цикл
     function gameLoop() {
+        // Код игрового цикла остается таким же, как в предыдущем примере
         balls.forEach(ball => {
-            if (ball.health <= 0) return; // Мёртвые не двигаются
+            if (ball.health <= 0) return;
 
-            // Сохраняем предыдущие координаты
             const prevX = ball.x;
             const prevY = ball.y;
 
-            // Движение шарика
-            if (ball.controls.up) ball.y -= ball.speed;
-            if (ball.controls.down) ball.y += ball.speed;
-            if (ball.controls.left) ball.x -= ball.speed;
-            if (ball.controls.right) ball.x += ball.speed;
+            ball.vx = 0;
+            ball.vy = 0;
 
-            // Проверка столкновения со стенами
-            if (checkWallCollision(ball)) {
-                ball.x = prevX;
-                ball.y = prevY;
-            }
+            if (ball.controls.up) ball.vy = -ball.speed;
+            if (ball.controls.down) ball.vy = ball.speed;
+            if (ball.controls.left) ball.vx = -ball.speed;
+            if (ball.controls.right) ball.vx = ball.speed;
 
-            // Обновление позиции шарика
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+
+            checkWallCollision(ball);
+
             ball.element.style.left = `${ball.x}px`;
             ball.element.style.top = `${ball.y}px`;
 
-            // Вращение оружия
             ball.weaponAngle += settings.rotationSpeed;
             ball.weapon.style.transform = `rotate(${ball.weaponAngle}rad)`;
         });
 
-        // Проверка столкновений с оружием
+        checkBallCollisions();
         checkWeaponCollision();
 
         requestAnimationFrame(gameLoop);
